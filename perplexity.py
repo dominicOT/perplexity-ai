@@ -78,6 +78,72 @@ class Emailnator:
 
 # client class for interactions with perplexity ai webpage
 class Client:
+    """
+    A class representing a client for the Perplexity AI service.
+
+    Attributes:
+        session (requests.Session): The session object for making HTTP requests.
+        t (str): The random value for session initialization.
+        sid (str): The session ID.
+        frontend_uuid (str): The UUID for the frontend.
+        frontend_session_id (str): The session ID for the frontend.
+        _last_answer (dict): The last answer received from the server.
+        _last_file_upload_info (dict): Information about the last file upload.
+        own (bool): Indicates if the client is owned by the user.
+        copilot (int): The number of copilots available for use.
+        file_upload (int): The number of file uploads remaining.
+        n (int): The counter for request numbers.
+
+    Methods:
+        __init__(self, headers, cookies, own=False): Initializes the Client object.
+        create_account(self, headers, cookies): Creates an account on the Perplexity AI website.
+        on_message(self, ws, message): Handles incoming messages from the WebSocket.
+        search(self, query, mode='concise', focus='internet', files=[], follow_up=None, solvers={}, ai_model='default'): Performs a search on the Perplexity AI website.
+    """
+
+    def __init__(self, headers, cookies, own=False):
+        """
+        Initializes the Client object.
+
+        Args:
+            headers (dict): The headers for the HTTP requests.
+            cookies (dict): The cookies for the HTTP requests.
+            own (bool, optional): Indicates if the client is owned by the user. Defaults to False.
+        """
+        self.session = requests.Session()
+        self.session.headers.update(case_fixer(headers))
+        self.session.cookies.update(cookies)
+
+        # generate random values for session init
+        self.t = format(random.getrandbits(32), '08x')
+        self.sid = json.loads(self.session.get(f'https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}').text[1:])['sid']
+        self.frontend_uuid = str(uuid4())
+        self.frontend_session_id = str(uuid4())
+        self._last_answer = None
+        self._last_file_upload_info = None
+        self.own = own
+        self.copilot = 0 if not own else float('inf')
+        self.file_upload = 0 if not own else float('inf')
+        self.n = 1
+
+        assert self.session.post(f'https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}&sid={self.sid}', data='40{"jwt":"anonymous-ask-user"}').text == 'OK'
+
+        # setup websocket communication
+        self.ws = WebSocketApp(
+            url=f'wss://www.perplexity.ai/socket.io/?EIO=4&transport=websocket&sid={self.sid}',
+            cookie='; '.join([f'{x}={y}' for x, y in self.session.cookies.get_dict().items()]),
+            header={'User-Agent': self.session.headers['User-Agent']},
+            on_open=lambda ws: ws.send('2probe'),
+            on_message=self.on_message,
+            on_error=lambda ws, err: print(f'Error: {err}'),
+        )
+
+        # start webSocket thread
+        Thread(target=self.ws.run_forever).start()
+        time.sleep(1)
+
+    # Rest of the code...
+class Client:
     def __init__(self, headers, cookies, own=False):
         self.session = requests.Session()
         self.session.headers.update(case_fixer(headers))
